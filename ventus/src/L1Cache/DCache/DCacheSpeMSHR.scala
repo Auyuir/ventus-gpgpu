@@ -47,17 +47,6 @@ class getEntryStatusReq(nEntry: Int) extends Module{
   io.next := VecInit(io.valid_list.asBools).indexWhere(_ === false.B)
 }
 
-class getEntryStatusRsp(nEntry: Int) extends Module{
-  val io = IO(new Bundle{
-    val valid_list = Input(UInt(nEntry.W))
-    val next2cancel = Output(UInt(log2Up(nEntry).W))
-    val used = Output(UInt((log2Up(nEntry)+1).W))
-  })
-  io.next2cancel := VecInit(io.valid_list.asBools).indexWhere(_ === true.B)
-  io.used := PopCount(io.valid_list)
-
-}
-
 
 class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   val io = IO(new Bundle{
@@ -77,9 +66,6 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   //  ******     missReq decide selected subentries are full or not     ******
   val entryStatus = Module(new getEntryStatusReq(NMshrEntry)) // Output: alm_full, full, next
   entryStatus.io.valid_list := Reverse(Cat(entry_valid))
-
-  //  ******     missRsp status      ******
-  val entryStatusForRsp = Module(new getEntryStatusRsp(NMshrEntry))
 
   // ******     enum vec_mshr_status     ******
   val mshrStatus_st1_r = RegInit(0.U(1.W))
@@ -118,12 +104,10 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   io.probeOut_st1.a_source := entryStatus.io.next
 
   //  ******      mshr::special_arrange_core_rsp    ******
-  entryStatusForRsp.io.valid_list := Reverse(Cat(entry_valid))
   // priority: missRspIn > missReq
   //assert(!io.missRspIn.fire || (io.missRspIn.fire && subentryStatus.io.used >= 1.U))
   //This version allow missRspIn fire when no subentry are left
   //如果后面发现missRspOut端口这一级不能取消，使用这段注释掉的代码
-
   io.missRspOut.bits.instrId := RegNext(io.missRspIn.bits.d_source)
   io.missRspOut.valid := RegNext(io.missRspIn.valid)
 

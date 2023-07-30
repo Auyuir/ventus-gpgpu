@@ -75,15 +75,11 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   io.empty := !entry_valid.asUInt.orR
 
   //  ******     missReq decide selected subentries are full or not     ******
-  val subentryStatus = Module(new getEntryStatusReq(NMshrEntry)) // Output: alm_full, full, next
-  subentryStatus.io.valid_list := Reverse(Cat(entry_valid))
+  val entryStatus = Module(new getEntryStatusReq(NMshrEntry)) // Output: alm_full, full, next
+  entryStatus.io.valid_list := Reverse(Cat(entry_valid))
 
   //  ******     missRsp status      ******
   val subentryStatusForRsp = Module(new getEntryStatusRsp(NMshrEntry))
-
-  //  ******     missReq decide MSHR is full or not     ******
-  val entryStatus = Module(new getEntryStatusReq(NMshrEntry))
-  entryStatus.io.valid_list := entry_valid
 
   // ******     enum vec_mshr_status     ******
   val mshrStatus_st1_r = RegInit(0.U(3.W))
@@ -91,42 +87,21 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   /*AVAIL         000
   * FULL          001*/
   // ******      mshr::probe_vec    ******
-  val mainEntryFull = entryStatus.io.full
-  val mainEntryAlmFull = entryStatus.io.alm_full
-  val subEntryFull = subentryStatus.io.full
-  val subEntryAlmFull = subentryStatus.io.alm_full
+  val entryFull = entryStatus.io.full
+  val entryAlmFull = entryStatus.io.alm_full
   when(io.missReq.fire){
-    when(primaryMiss && mainEntryAlmFull) {
-      mshrStatus_st1_r := 1.U //PRIMARY_FULL
-    }.elsewhen(secondaryMiss && subEntryAlmFull) {
-      mshrStatus_st1_r := 3.U //SECONDARY_FULL
+    when(entryAlmFull) {
+      mshrStatus_st1_r := 1.U //FULL
     }
   }.elsewhen(io.probe.valid){
-    when(primaryMiss) {
-      when(mainEntryFull) {
-        mshrStatus_st1_r := 1.U //PRIMARY_FULL
-        //}.elsewhen(mainEntryAlmFull) {
-        //  mshrStatus_st1 := 5.U //PRIMARY_ALM_FULL
-      }.otherwise {
-        mshrStatus_st1_r := 0.U //PRIMARY_AVAIL
-      }
+    when(entryFull) {
+      mshrStatus_st1_r := 1.U //FULL
     }.otherwise {
-      when(subEntryFull) {
-        mshrStatus_st1_r := 3.U //SECONDARY_FULL
-        //}.elsewhen(subEntryAlmFull) {
-        //  mshrStatus_st1 := 7.U //SECONDARY_ALM_FULL
-      }.otherwise {
-        mshrStatus_st1_r := 2.U //SECONDARY_AVAIL
-      }
+      mshrStatus_st1_r := 0.U //AVAIL
     }
   }.elsewhen(io.missRspIn.valid){
-    //assert(!(mshrStatus_st1_r === 4.U),"mshr set SECONDARY_FULL_RETURN incorrectly")
     when(mshrStatus_st1_r === 1.U){
-      mshrStatus_st1_r := 0.U //PRIMARY_AVAIL
-    }.elsewhen(mshrStatus_st1_r === 3.U && subentryStatusForRsp.io.used === 1.U){
-      mshrStatus_st1_r := 4.U //SECONDARY_FULL_RETURN
-    }.elsewhen(mshrStatus_st1_r === 4.U && subentryStatusForRsp.io.used === 0.U) {
-      mshrStatus_st1_r := 2.U //SECONDARY_AVAIL
+      mshrStatus_st1_r := 0.U //AVAIL
     }
   }
   when(secondaryMiss && (mshrStatus_st1_r === 0.U || mshrStatus_st1_r === 1.U)){
@@ -145,7 +120,7 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
   io.missReq.ready := !(mshrStatus_st1_w === 1.U || mshrStatus_st1_w === 3.U)// || io.missRspIn.valid)
   assert(!io.missReq.fire || (io.missReq.fire && !io.missRspIn.fire),"MSHR cant have Req & Rsp valid in same cycle, later the prior")
   val real_SRAMAddrUp = Mux(secondaryMiss,OHToUInt(entryMatchProbe_st1),entryStatus.io.next)
-  val real_SRAMAddrDown = Mux(secondaryMiss,subentryStatus.io.next,0.U)
+  val real_SRAMAddrDown = Mux(secondaryMiss,entryStatus.io.next,0.U)
   when (io.missReq.fire){
     targetInfo_Accesss(real_SRAMAddrUp)(real_SRAMAddrDown) := io.missReq.bits.targetInfo
   }
@@ -192,7 +167,7 @@ class SpeMSHR(val WIdBits: Int, val NMshrEntry:Int) extends Module{
         when(iofSubEn.asUInt===subentry_next2cancel &&
           io.missRspIn.valid){
           subentry_valid(iofEn)(iofSubEn) := false.B
-        }.elsewhen(iofSubEn.asUInt===subentryStatus.io.next &&
+        }.elsewhen(iofSubEn.asUInt===entryStatus.io.next &&
           io.missReq.fire && secondaryMiss){
           subentry_valid(iofEn)(iofSubEn) := true.B
         }
